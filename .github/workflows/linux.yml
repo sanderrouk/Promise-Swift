@@ -1,0 +1,64 @@
+name: Linux Build and Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master   
+
+jobs:
+  linux:
+    runs-on: ubuntu-18.04
+    steps:
+    - name: Sync repository
+      uses: actions/checkout@v1
+
+    - name: Install Swift-Docker:18.04 Dependencies
+      run: >-  
+        export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true 
+        && for apt_file in `grep -lr microsoft /etc/apt/sources.list.d/`; do sudo rm $apt_file; done
+        && sudo apt-get -q update 
+        && sudo apt-get -q install -y 
+        libatomic1 
+        libbsd0 
+        libcurl4 
+        libxml2 
+        libedit2 
+        libsqlite3-0 
+        libc6-dev 
+        binutils 
+        libgcc-5-dev 
+        libstdc++-5-dev 
+        libpython2.7 
+        tzdata 
+        git 
+        pkg-config 
+        && sudo rm -r /var/lib/apt/lists/*
+
+    - name: Install Swift 5.0
+      run: >-
+        SWIFT_PLATFORM=ubuntu18.04 
+        && SWIFT_BRANCH=swift-5.0.3-release 
+        && SWIFT_VERSION=swift-5.0.3-RELEASE 
+        && SWIFT_URL=https://swift.org/builds/$SWIFT_BRANCH/$(echo "$SWIFT_PLATFORM" | tr -d .)/$SWIFT_VERSION/$SWIFT_VERSION-$SWIFT_PLATFORM.tar.gz 
+        && for apt_file in `grep -lr microsoft /etc/apt/sources.list.d/`; do sudo rm $apt_file; done 
+        && sudo apt-get update
+        && sudo apt-get install -y curl 
+        && curl -fSsL $SWIFT_URL -o swift.tar.gz 
+        && curl -fSsL $SWIFT_URL.sig -o swift.tar.gz.sig 
+        && sudo apt-get purge -y curl 
+        && sudo apt-get -y autoremove 
+        && export GNUPGHOME="$(mktemp -d)" 
+        && set -e; for key in A62AE125BBBFBB96A6E042EC925CC1CCED3D1561; do gpg --quiet --keyserver ha.pool.sks-keyservers.net --recv-keys "$key"; done
+        && gpg --batch --verify --quiet swift.tar.gz.sig swift.tar.gz 
+        && sudo tar -xzf swift.tar.gz --directory / --strip-components=1 
+        && sudo rm -r "$GNUPGHOME" swift.tar.gz.sig swift.tar.gz 
+        && sudo chmod -R o+r /usr/lib/swift
+        && swift --version
+
+    - name: Swift Build
+      run: swift build -v
+    - name: Swift Test
+      run: swift test -v
