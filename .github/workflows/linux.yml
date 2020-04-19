@@ -37,25 +37,30 @@ jobs:
         pkg-config 
         && sudo rm -r /var/lib/apt/lists/*
 
-    - name: Install Swift 5.0
+    - name: Install Swift 5.2.2
       run: >-
-        SWIFT_PLATFORM=ubuntu18.04 
-        && SWIFT_BRANCH=swift-5.0.3-release 
-        && SWIFT_VERSION=swift-5.0.3-RELEASE 
-        && SWIFT_URL=https://swift.org/builds/$SWIFT_BRANCH/$(echo "$SWIFT_PLATFORM" | tr -d .)/$SWIFT_VERSION/$SWIFT_VERSION-$SWIFT_PLATFORM.tar.gz 
+        SWIFT_SIGNING_KEY=A62AE125BBBFBB96A6E042EC925CC1CCED3D1561
+        && SWIFT_PLATFORM=ubuntu18.04 
+        && SWIFT_BRANCH=swift-5.2.2-release 
+        && SWIFT_VERSION=swift-5.2.2-RELEASE 
+        && SWIFT_WEBROOT=https://swift.org/builds
+        && SWIFT_WEBDIR="$SWIFT_WEBROOT/$SWIFT_BRANCH/$(echo $SWIFT_PLATFORM | tr -d .)"
+        && SWIFT_BIN_URL="$SWIFT_WEBDIR/$SWIFT_VERSION/$SWIFT_VERSION-$SWIFT_PLATFORM.tar.gz"
+        && SWIFT_SIG_URL="$SWIFT_BIN_URL.sig"
         && for apt_file in `grep -lr microsoft /etc/apt/sources.list.d/`; do sudo rm $apt_file; done 
         && sudo apt-get update
         && sudo apt-get install -y curl 
-        && curl -fSsL $SWIFT_URL -o swift.tar.gz 
-        && curl -fSsL $SWIFT_URL.sig -o swift.tar.gz.sig 
-        && sudo apt-get purge -y curl 
-        && sudo apt-get -y autoremove 
+        && sudo rm -rf /var/lib/apt/lists/*
         && export GNUPGHOME="$(mktemp -d)" 
-        && set -e; for key in A62AE125BBBFBB96A6E042EC925CC1CCED3D1561; do gpg --quiet --keyserver ha.pool.sks-keyservers.net --recv-keys "$key"; done
-        && gpg --batch --verify --quiet swift.tar.gz.sig swift.tar.gz 
-        && sudo tar -xzf swift.tar.gz --directory / --strip-components=1 
-        && sudo rm -r "$GNUPGHOME" swift.tar.gz.sig swift.tar.gz 
+        && echo $SWIFT_BIN_URL
+        && echo $SWIFT_SIG_URL
+        && curl -fsSL "$SWIFT_BIN_URL" -o swift.tar.gz "$SWIFT_SIG_URL" -o swift.tar.gz.sig
+        && sudo gpg --batch --quiet --keyserver ha.pool.sks-keyservers.net --recv-keys "$SWIFT_SIGNING_KEY"
+        && sudo gpg --batch --verify swift.tar.gz.sig swift.tar.gz
+        && sudo tar -xzf swift.tar.gz --directory / --strip-components=1
         && sudo chmod -R o+r /usr/lib/swift
+        && sudo rm -rf "$GNUPGHOME" swift.tar.gz.sig swift.tar.gz
+        && sudo apt-get purge --auto-remove -y curl
         && swift --version
 
     - name: Swift Build
