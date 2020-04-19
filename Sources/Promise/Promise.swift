@@ -25,6 +25,9 @@ public protocol PromiseCancellationHandler: AnyObject {
 
 /// A construct for supporting asynchronous tasks. This construct does not handle any threading itself. This must be handled by the callers and consumers.
 public final class Promise<T> {
+    
+    /// A typealias for cancel callback.
+    public typealias CancelCallback = () -> Void
 
     /// A construct representing the state of the promise.
     public enum State<T> {
@@ -38,6 +41,9 @@ public final class Promise<T> {
 
     /// A cancellation handler object. If an object needs to listen to the cancellation of a promise then it should be assigned to this variable.
     public weak var cancellationHandler: PromiseCancellationHandler?
+    
+    /// A callback which is called if the promise is cancelled.
+    public var cancelCallback: CancelCallback?
     
     /// The promise's state.
     public private(set) var state: State<T> = .pending
@@ -186,6 +192,58 @@ extension Promise: PromiseCancellationHandler {
     /// A method that can be called to cancel a promise.
     public func cancel() {
         cancellationHandler?.cancel()
+        cancelCallback?()
         clearCallbacks()
     }
+}
+
+extension Collection {
+    
+    /// A function that can be used to flatten an array of promises of type `T`
+    /// - Returns: A promise with type `Promise<[T]>`.
+    public func flatten<T>() -> Promise<[T]> where Element == Promise<T> {
+         let flattenedPromise = Promise<[T]>()
+
+         var elements = [T]()
+         elements.reserveCapacity(self.count)
+
+         var iterator = makeIterator()
+
+         func handle(_ promise: Promise<T>) {
+            if case let .resolved(result) = promise.state {
+                 switch result {
+                 case .success(value: let value):
+                     elements.append(value)
+                     if let next = iterator.next() {
+                         handle(next)
+                     } else {
+                        flattenedPromise.resolve(value: elements)
+                     }
+
+                 case .failure(error: let error):
+                    flattenedPromise.reject(error: error)
+                 }
+                 return
+             }
+
+             promise.then({ value in
+                 elements.append(value)
+                 if let next = iterator.next() {
+                     handle(next)
+                 } else {
+                    flattenedPromise.resolve(value: elements)
+                 }
+             }).catch({ error in
+                flattenedPromise.reject(error: error)
+             })
+         }
+
+         if let first = iterator.next() {
+             handle(first)
+         } else {
+            flattenedPromise.resolve(value: elements)
+         }
+
+         return flattenedPromise
+     }
 }

@@ -25,7 +25,12 @@ final class PromiseTests: XCTestCase {
         ("testAlwaysBlock_succeeedsIfChainedToMultipleBlocks", testAlwaysBlock_succeeedsIfChainedToMultipleBlocks),
         ("testCancel_clearsCallbacks", testCancel_clearsCallbacks),
         ("testCancel_clearsCallbacksUpstream", testCancel_clearsCallbacksUpstream),
-        ("testCancellationReference", testCancellationReference)
+        ("testCancellationReference", testCancellationReference),
+        ("testFlattenResolvesOnEmptyArray", testFlattenResolvesOnEmptyArray),
+        ("testFlattenRemainsPendingIfInputPending", testFlattenRemainsPendingIfInputPending),
+        ("testFlattenResolvesIfAllInputsResolve", testFlattenResolvesIfAllInputsResolve),
+        ("testFlattenRejectsIfOneInInputRejects", testFlattenRejectsIfOneInInputRejects),
+        ("testFlattenRetainsValues", testFlattenRetainsValues)        
     ]
 
     func testInit_createsPendingState() {
@@ -302,6 +307,97 @@ final class PromiseTests: XCTestCase {
 
         promise.resolve(value: ())
     }
+    
+    func testFlattenResolvesOnEmptyArray() {
+         let emptyArray: [Promise<Void>] = []
+         let flattened = emptyArray.flatten()
+        XCTAssertNoThrow(try await(for: flattened))
+        if case .pending = flattened.state {
+            XCTFail("Promise state should be resolved")
+        }
+     }
+
+     func testFlattenRemainsPendingIfInputPending() {
+         let arrayWithPending = [Promise<Void>()]
+         let flattened = arrayWithPending.flatten()
+        if case .resolved = flattened.state {
+            XCTFail("Promise state should be pending")
+        }
+     }
+
+     func testFlattenResolvesIfAllInputsResolve() {
+         let void1 = Promise<Void>(value: ())
+         let void2 = Promise<Void>(value: ())
+         let void3 = Promise<Void>()
+         let input = [void1, void2, void3]
+         let flattened = input.flatten()
+
+         if case .resolved = flattened.state {
+             XCTFail("Promise state should be pending")
+         }
+        
+        void3.resolve(value: ())
+        XCTAssertNoThrow(try await(for: flattened))
+
+         if case .pending = flattened.state {
+             XCTFail("Promise state should be resolved")
+         }
+     }
+
+     func testFlattenRejectsIfOneInInputRejects() {
+         let void1 = Promise<Void>(value: ())
+         let void2 = Promise<Void>(value: ())
+         let void3 = Promise<Void>(value: ())
+         let rejectedPromise = Promise<Void>(error: TestError.error)
+         var input = [void1, void2, void3]
+
+         var flattened = input.flatten()
+        XCTAssertNoThrow(try await(for: flattened))
+        if case .pending = flattened.state {
+            XCTFail("Promise state should be resolved")
+        }
+
+         input.append(rejectedPromise)
+         flattened = input.flatten()
+
+        XCTAssertNoThrow(try await(for: flattened))
+        if case let .resolved(value) = flattened.state {
+            switch value {
+            case .success:
+                XCTFail("Promise should be rejected")
+            case let .failure(error):
+                if let error = error as? TestError {
+                    XCTAssertEqual(error, TestError.error)
+                } else {
+                    XCTFail("Found error of wrong type.")
+                }
+            }
+        } else {
+            XCTFail("Promise state should be resolved")
+        }
+     }
+
+     func testFlattenRetainsValues() {
+         let promise1 = Promise(value: "Promise 1")
+         let promise2 = Promise(value: "Promise 2")
+         let promise3 = Promise(value: "Promise 3")
+         let flattened = [promise1, promise2, promise3].flatten()
+
+         let inputValues = ["Promise 1", "Promise 2", "Promise 3"]
+         var flattenedValuesCount = 0
+         let thenBlock = flattened
+             .then({ values in
+                 flattenedValuesCount = values.count
+                 values.forEach({ XCTAssertTrue(inputValues.contains($0))})
+             })
+
+        XCTAssertNoThrow(try await(for: flattened))
+        XCTAssertNoThrow(try await(for: thenBlock))
+        if case .pending = flattened.state {
+            XCTFail("Promise state should be resolved")
+        }
+         XCTAssertEqual(flattenedValuesCount, 3)
+     }
 
     private func await<T>(for promise: Promise<T>) throws {
         let expectation = self.expectation(description: "Waiting on promise")
